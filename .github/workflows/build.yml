@@ -1,0 +1,85 @@
+name: Bygg APK
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hitta zip
+        id: zip
+        run: |
+          ZIP=$(ls *.zip 2>/dev/null | head -1)
+          if [ -z "$ZIP" ]; then
+            echo "Ingen .zip i repo-roten - hoppar over bygget (troligen en radera-commit)."
+            echo "has=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Hittade: $ZIP"
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Packa upp projektet
+        if: steps.zip.outputs.has == 'true'
+        run: |
+          ZIP=$(ls *.zip | head -1)
+          echo "Packar upp: $ZIP"
+          unzip -o "$ZIP"
+          ls -la wtf-apk
+
+      - uses: actions/setup-java@v4
+        if: steps.zip.outputs.has == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        if: steps.zip.outputs.has == 'true'
+
+      - name: Installera
+        if: steps.zip.outputs.has == 'true'
+        working-directory: wtf-apk
+        run: npm ci
+
+      - name: Synka
+        if: steps.zip.outputs.has == 'true'
+        working-directory: wtf-apk
+        run: npx cap sync android
+
+      - name: Bygg
+        if: steps.zip.outputs.has == 'true'
+        working-directory: wtf-apk/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Rakna ut version
+        id: ver
+        if: steps.zip.outputs.has == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(gh api -X GET "repos/${{ github.repository }}/releases" --paginate -q '.[].tag_name' 2>/dev/null \
+            | grep -oE 'build-[0-9]+' | sed 's/build-//' | sort -n | tail -1)
+          LATEST=${LATEST:-0}
+          VER=$((LATEST + 1))
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "Nasta version: build-$VER"
+
+      - name: Dop om APK
+        if: steps.zip.outputs.has == 'true'
+        run: |
+          cp wtf-apk/android/app/build/outputs/apk/debug/app-debug.apk \
+             "watt-the-f-debug-${{ steps.ver.outputs.ver }}.apk"
+          ls -la watt-the-f-debug-*.apk
+
+      - name: Publicera APK
+        if: steps.zip.outputs.has == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ steps.ver.outputs.ver }}
+          name: Watt the f* build-${{ steps.ver.outputs.ver }}
+          files: watt-the-f-debug-${{ steps.ver.outputs.ver }}.apk
