@@ -39,6 +39,19 @@ jobs:
       - uses: android-actions/setup-android@v3
         if: steps.zip.outputs.has == 'true'
 
+      - name: Rakna ut version
+        id: ver
+        if: steps.zip.outputs.has == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(gh api -X GET "repos/${{ github.repository }}/releases" --paginate -q '.[].tag_name' 2>/dev/null \
+            | grep -oE 'build-[0-9]+' | sed 's/build-//' | sort -n | tail -1)
+          LATEST=${LATEST:-0}
+          VER=$((LATEST + 1))
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "Nasta version: build-$VER"
+
       - name: Installera
         if: steps.zip.outputs.has == 'true'
         working-directory: wtf-apk
@@ -54,20 +67,10 @@ jobs:
         working-directory: wtf-apk/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Rakna ut version
-        id: ver
-        if: steps.zip.outputs.has == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          LATEST=$(gh api -X GET "repos/${{ github.repository }}/releases" --paginate -q '.[].tag_name' 2>/dev/null \
-            | grep -oE 'build-[0-9]+' | sed 's/build-//' | sort -n | tail -1)
-          LATEST=${LATEST:-0}
-          VER=$((LATEST + 1))
-          echo "ver=$VER" >> "$GITHUB_OUTPUT"
-          echo "Nasta version: build-$VER"
+          ./gradlew assembleDebug \
+            -PverCode=${{ steps.ver.outputs.ver }} \
+            -PverName=1.0.${{ steps.ver.outputs.ver }} \
+            --no-daemon --stacktrace
 
       - name: Dop om APK
         if: steps.zip.outputs.has == 'true'
